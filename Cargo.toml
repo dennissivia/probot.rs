@@ -1,0 +1,10 @@
+[package]
+name = "probot"
+version = "0.0.1"
+authors = ["Dennis Sivia <dev@d-coded.de>"]
+edition = "2018"
+
+[dependencies]
+octokit = { path = "../octokit" }
+jsonwebtoken = "6.0.1"
+actix-web = "1.0.5"
