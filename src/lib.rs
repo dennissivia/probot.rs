@@ -1,9 +1,7 @@
 #[macro_use]
 extern crate json;
 
-use actix_web::{
-    error, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer,
-};
+use actix_web::{error, middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
 use bytes::BytesMut;
 use futures::{Future, Stream};
 use json::JsonValue;
@@ -15,68 +13,24 @@ struct MyObj {
     number: i32,
 }
 
-fn github_setup() -> HttpResponse {
-   HttpResponse::Ok().content_type("text/html").body("Setup successful. Imagine nice html")
-}
-
 /// This handler uses json extractor
 fn index(item: web::Json<MyObj>) -> HttpResponse {
     println!("model: {:?}", &item);
     HttpResponse::Ok().json(item.0) // <- send response
 }
 
-/// This handler uses json extractor with limit
-fn extract_item(item: web::Json<MyObj>, req: HttpRequest) -> HttpResponse {
-    println!("request: {:?}", req);
-    println!("model: {:?}", item);
-
-    HttpResponse::Ok().json(item.0) // <- send json response
+fn github_events(item: web::Json<MyObj>) -> HttpResponse {
+    println!("model: {:?}", &item);
+    HttpResponse::Ok().json(item.0) // <- send response
 }
 
-const MAX_SIZE: usize = 262_144; // max payload size is 256k
-
-/// This handler manually load request payload and parse json object
-fn index_manual(
-    payload: web::Payload,
-) -> impl Future<Item = HttpResponse, Error = Error> {
-    // payload is a stream of Bytes objects
-    payload
-        // `Future::from_err` acts like `?` in that it coerces the error type from
-        // the future into the final error type
-        .from_err()
-        // `fold` will asynchronously read each chunk of the request body and
-        // call supplied closure, then it resolves to result of closure
-        .fold(BytesMut::new(), move |mut body, chunk| {
-            // limit max size of in-memory payload
-            if (body.len() + chunk.len()) > MAX_SIZE {
-                Err(error::ErrorBadRequest("overflow"))
-            } else {
-                body.extend_from_slice(&chunk);
-                Ok(body)
-            }
-        })
-        // `Future::and_then` can be used to merge an asynchronous workflow with a
-        // synchronous workflow
-        .and_then(|body| {
-            // body is loaded, now we can deserialize serde-json
-            let obj = serde_json::from_slice::<MyObj>(&body)?;
-            Ok(HttpResponse::Ok().json(obj)) // <- send response
-        })
-}
-
-/// This handler manually load request payload and parse json-rust
-fn index_mjsonrust(pl: web::Payload) -> impl Future<Item = HttpResponse, Error = Error> {
-    pl.concat2().from_err().and_then(|body| {
-        // body is loaded, now we can deserialize json-rust
-        let result = json::parse(std::str::from_utf8(&body).unwrap()); // return Result
-        let injson: JsonValue = match result {
-            Ok(v) => v,
-            Err(e) => json::object! {"err" => e.to_string() },
-        };
-        Ok(HttpResponse::Ok()
-            .content_type("application/json")
-            .body(injson.dump()))
-    })
+// return a nice page or just redirect somewhere? Dunno...
+// extract installation_ida and setup_action from
+// https://probot-rust.ngrok.io/github/setup?installation_id=1326682&setup_action=install
+fn github_setup() -> HttpResponse {
+    HttpResponse::Ok()
+        .content_type("text/html")
+        .body("Setup successful. Imagine nice html")
 }
 
 pub fn start() -> std::io::Result<()> {
@@ -87,18 +41,9 @@ pub fn start() -> std::io::Result<()> {
         App::new()
             // enable logger
             .wrap(middleware::Logger::default())
-            .data(web::JsonConfig::default().limit(4096)) // <- limit size of the payload (global configuration)
-            .service(web::resource("/extractor").route(web::post().to(index)))
-            .service(
-                web::resource("/extractor2")
-                    .data(web::JsonConfig::default().limit(1024)) // <- limit size of the payload (resource level)
-                    .route(web::post().to_async(extract_item)),
-            )
-            .service(web::resource("/manual").route(web::post().to_async(index_manual)))
-            .service(
-                web::resource("/mjsonrust").route(web::post().to_async(index_mjsonrust)),
-            )
+            .data(web::JsonConfig::default().limit(409600)) // <- limit size of the payload (global configuration)
             .service(web::resource("/github/setup").route(web::get().to(github_setup)))
+            .service(web::resource("/github/events").route(web::post().to(github_events)))
             .service(web::resource("/").route(web::post().to(index)))
     })
     .bind("127.0.0.1:9999")?
